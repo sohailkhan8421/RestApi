@@ -17,10 +17,7 @@ namespace RestApi.Controllers
             _context = context;
         }
 
-        // GET:  api/students?token=?
-
-        //cxczxcx
-
+        // Get all students for the authenticated user
         [HttpGet]
         public async Task<IActionResult> GetStudents([FromQuery] string token)
         {
@@ -90,115 +87,216 @@ namespace RestApi.Controllers
         [HttpPost]
         public async Task<IActionResult> AddStudent([FromQuery] string token, Student st)
         {
-            if (string.IsNullOrEmpty(token))
-                return Unauthorized(new { message = "Token missing." });
-
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.token == token);
-            if (user == null)
-                return Unauthorized(new { message = "Invalid token." });
-
-
-            // RollNo required
-            if (st.RollNo == 0)
-                return BadRequest(new { message = "Roll number is required." });
-
-            int roll_no = st.RollNo.Value;
-
-            // Check duplicate roll number
-            var existingStudent = await _context.Students
-                .FirstOrDefaultAsync(s => s.RollNo == roll_no && s.userId == user.Id);
-
-            if (existingStudent != null)   // FIXED
-                return BadRequest(new { message = "Roll number already exists!" });
-
-
-            // Create new student
-            var newStudent = new Student
+            try
             {
-                userId = user.Id,
-                RollNo = st.RollNo,
-                FullName = st.FullName,
-                FatherName = st.FatherName,
-                Email = st.Email,
-                Phone = st.Phone,
-                Address = st.Address,
-                City = st.City,
-                Course = st.Course,
-                Description = st.Description
-            };
+                if (string.IsNullOrEmpty(token))
+                    return Unauthorized(new
+                    {
+                        status = 401,
+                        message = "Token missing."
+                    });
 
-            await _context.Students.AddAsync(newStudent);
-            await _context.SaveChangesAsync();
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.token == token);
+                if (user == null)
+                    return Unauthorized(new
+                    {
+                        status = 401,
+                        message = "Invalid token."
+                    });
 
-            return Ok(new
+                if (st.RollNo == 0 || st.RollNo == null)
+                    return BadRequest(new
+                    {
+                        status = 400,
+                        message = "Roll number is required."
+                    });
+
+                // Check for duplicate roll number for the same user
+
+                int roll_no = st.RollNo.Value;
+
+                // 409: Duplicate roll number
+
+                var existingStudent = await _context.Students
+                    .FirstOrDefaultAsync(s => s.RollNo == roll_no && s.userId == user.Id);
+
+                if (existingStudent != null)
+                    return Conflict(new
+                    {
+                        status = 409,
+                        message = "Roll number already exists."
+                    });
+
+                var newStudent = new Student {
+                    userId = user.Id,
+                    RollNo = st.RollNo,
+                    FullName = st.FullName,
+                    FatherName = st.FatherName,
+                    Email = st.Email,
+                    Phone = st.Phone,
+                    Address = st.Address,
+                    City = st.City,
+                    Course = st.Course,
+                    Description = st.Description
+                };
+
+                await _context.Students.AddAsync(newStudent);
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    status = 200,
+                    message = "Student added successfully.",
+                    student = newStudent
+                });
+            }
+            catch (Exception ex)
             {
-                message = "Student added successfully",
-                student = newStudent
-            });
+                return StatusCode(500, new
+                {
+                    status = 500,
+                    message = "Internal server error.",
+                    error = ex.Message
+                });
+            }
         }
 
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateStudent(int id, [FromQuery] string token, [FromBody] Student updatedStudent)
+        public async Task<IActionResult> UpdateStudent( int id,[FromQuery] string token,[FromBody] Student updatedStudent)
         {
-            if (string.IsNullOrEmpty(token))
-                return Unauthorized(new { message = "Token missing.", code = 402 });
-
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.token == token);
-            if (user == null)
-                return Unauthorized(new { message = "Invalid token." ,code=502});
-
-            // Get student by id
-            var student = await _context.Students.FirstOrDefaultAsync(s => s.Id == id && s.userId == user.Id);
-            if (student == null)
-                return NotFound($"Student with ID {id} not found or you do not have permission to update.");
-
-            //Duplicate Roll No check
-            if (updatedStudent.RollNo != student.RollNo) 
+            try
             {
-                bool duplicate = await _context.Students.AnyAsync(s =>
-                    s.RollNo == updatedStudent.RollNo && s.userId == user.Id);
+                if (string.IsNullOrEmpty(token))
+                {
+                    return BadRequest(new
+                    {
+                        status = 400,
+                        message = "Token missing."
+                    });
+                }
 
-                if (duplicate)
-                    return BadRequest(new { message = "Roll number already exists!" });
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.token == token);
+                if (user == null)
+                {
+                    return Unauthorized(new
+                    {
+                        status = 401,
+                        message = "Invalid token."
+                    });
+                }
+
+                var student = await _context.Students
+                    .FirstOrDefaultAsync(s => s.Id == id && s.userId == user.Id);
+
+                if (student == null)
+                {
+                    return NotFound(new
+                    {
+                        status = 404,
+                        message = $"Student with ID {id} not found or you do not have permission to update."
+                    });
+                }
+                if (updatedStudent.RollNo != student.RollNo)
+                {
+                    bool duplicate = await _context.Students.AnyAsync(s =>
+                        s.RollNo == updatedStudent.RollNo && s.userId == user.Id);
+
+                    if (duplicate)
+                    {
+                        return BadRequest(new
+                        {
+                            status = 400,
+                            message = "Roll number already exists."
+                        });
+                    }
+                }
+
+                student.RollNo = updatedStudent.RollNo;
+                student.FullName = updatedStudent.FullName;
+                student.FatherName = updatedStudent.FatherName;
+                student.Email = updatedStudent.Email;
+                student.Phone = updatedStudent.Phone;
+                student.Address = updatedStudent.Address;
+                student.City = updatedStudent.City;
+                student.Course = updatedStudent.Course;
+                student.Description = updatedStudent.Description;
+
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    status = 200,
+                    message = "Student updated successfully.",
+                    student
+                });
             }
-
-            student.RollNo = updatedStudent.RollNo;
-            student.FullName = updatedStudent.FullName;
-            student.FatherName = updatedStudent.FatherName;
-            student.Email = updatedStudent.Email;
-            student.Phone = updatedStudent.Phone;
-            student.Address = updatedStudent.Address;
-            student.City = updatedStudent.City;
-            student.Course = updatedStudent.Course;
-            student.Description = updatedStudent.Description;
-
-            await _context.SaveChangesAsync();
-
-            return Ok(new
+            catch (Exception ex)
             {
-                message = "Student updated successfully",
-                student,
-                code= 200
-            });
+                return StatusCode(500, new
+                {
+                    status = 500,
+                    message = "An internal server error occurred.",
+                    error = ex.Message
+                });
+            }
         }
 
-
-
-
-        // DELETE: api/students/5
+        // DELETE: api/students/{id}?token=?
         [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteStudent(int id)
-        {
-            var student = await _context.Students.FindAsync(id);
+        public async Task<IActionResult> DeleteStudent(int id,[FromQuery] string token){
+            try
+            {
+                if (string.IsNullOrEmpty(token))
+                {
+                    return BadRequest(new
+                    {
+                        status = 400,
+                        message = "Token missing."
+                    });
+                }
 
-            if (student == null)
-                return NotFound($"Student with ID {id} not found.");
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.token == token);
+                if (user == null)
+                {
+                    return Unauthorized(new
+                    {
+                        status = 401,
+                        message = "Invalid token."
+                    });
+                }
 
-            _context.Students.Remove(student);
-            await _context.SaveChangesAsync();
+                var student = await _context.Students
+                    .FirstOrDefaultAsync(s => s.Id == id && s.userId == user.Id);
 
-            return Ok($"Student with ID {id} deleted successfully.");
+                if (student == null)
+                {
+                    return NotFound(new
+                    {
+                        status = 404,
+                        message = "Student not found or you don't have permission to delete."
+                    });
+                }
+                _context.Students.Remove(student);
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    status = 200,
+                    message = "Student deleted successfully.",
+                    studentId = id
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    status = 500,
+                    message = "An error occurred while deleting the student.",
+                    error = ex.Message
+                });
+            }
         }
+
     }
 }
