@@ -88,27 +88,82 @@ namespace RestApi.Controllers
 
         // POST: api/students
         [HttpPost]
-        public async Task<IActionResult> AddStudent([FromBody] Student student)
+        public async Task<IActionResult> AddStudent([FromQuery] string token, Student st)
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
+            if (string.IsNullOrEmpty(token))
+                return Unauthorized(new { message = "Token missing." });
+
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.token == token);
+            if (user == null)
+                return Unauthorized(new { message = "Invalid token." });
 
 
-            await _context.Students.AddAsync(student);
+            // RollNo required
+            if (st.RollNo == 0)
+                return BadRequest(new { message = "Roll number is required." });
+
+            int roll_no = st.RollNo.Value;
+
+            // Check duplicate roll number
+            var existingStudent = await _context.Students
+                .FirstOrDefaultAsync(s => s.RollNo == roll_no && s.userId == user.Id);
+
+            if (existingStudent != null)   // FIXED
+                return BadRequest(new { message = "Roll number already exists!" });
+
+
+            // Create new student
+            var newStudent = new Student
+            {
+                userId = user.Id,
+                RollNo = st.RollNo,
+                FullName = st.FullName,
+                FatherName = st.FatherName,
+                Email = st.Email,
+                Phone = st.Phone,
+                Address = st.Address,
+                City = st.City,
+                Course = st.Course,
+                Description = st.Description
+            };
+
+            await _context.Students.AddAsync(newStudent);
             await _context.SaveChangesAsync();
 
-            return Ok(new { message = "Student added successfully", student });
+            return Ok(new
+            {
+                message = "Student added successfully",
+                student = newStudent
+            });
         }
 
-        // PUT: api/students/5
+
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateStudent(int id, [FromBody] Student updatedStudent)
+        public async Task<IActionResult> UpdateStudent(int id, [FromQuery] string token, [FromBody] Student updatedStudent)
         {
-            var student = await _context.Students.FindAsync(id);
+            if (string.IsNullOrEmpty(token))
+                return Unauthorized(new { message = "Token missing.", code = 402 });
 
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.token == token);
+            if (user == null)
+                return Unauthorized(new { message = "Invalid token." ,code=502});
+
+            // Get student by id
+            var student = await _context.Students.FirstOrDefaultAsync(s => s.Id == id && s.userId == user.Id);
             if (student == null)
-                return NotFound($"Student with ID {id} not found.");
+                return NotFound($"Student with ID {id} not found or you do not have permission to update.");
 
+            //Duplicate Roll No check
+            if (updatedStudent.RollNo != student.RollNo) 
+            {
+                bool duplicate = await _context.Students.AnyAsync(s =>
+                    s.RollNo == updatedStudent.RollNo && s.userId == user.Id);
+
+                if (duplicate)
+                    return BadRequest(new { message = "Roll number already exists!" });
+            }
+
+            student.RollNo = updatedStudent.RollNo;
             student.FullName = updatedStudent.FullName;
             student.FatherName = updatedStudent.FatherName;
             student.Email = updatedStudent.Email;
@@ -120,8 +175,16 @@ namespace RestApi.Controllers
 
             await _context.SaveChangesAsync();
 
-            return Ok(new { message = "Student updated successfully", student });
+            return Ok(new
+            {
+                message = "Student updated successfully",
+                student,
+                code= 200
+            });
         }
+
+
+
 
         // DELETE: api/students/5
         [HttpDelete("{id}")]

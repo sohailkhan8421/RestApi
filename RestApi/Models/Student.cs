@@ -1,12 +1,16 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace RestApi.Models
 {
     public class Student
     {
+
+        [JsonIgnore]
         public int Id { get; set; }
 
+        [JsonIgnore]
         public int userId { get; set; }
 
         public int? RollNo { get; set; }
